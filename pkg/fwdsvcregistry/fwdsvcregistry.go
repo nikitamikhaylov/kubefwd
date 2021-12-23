@@ -1,11 +1,11 @@
 package fwdsvcregistry
 
 import (
-	"sync"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/txn2/kubefwd/pkg/fwdservice"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"sync"
+	"time"
 )
 
 // ServicesRegistry is a structure to hold all of the kubernetes
@@ -74,16 +74,16 @@ func Add(serviceFwd *fwdservice.ServiceFWD) {
 	// @TODO review the need for this, if we keep it make if configurable
 	// @TODO this causes the services to try and bind a second time to the local ports and fails --cjimti
 	//
-	//go func() {
-	//	for {
-	//		select {
-	//		case <-time.After(10 * time.Minute):
-	//			serviceFwd.SyncPodForwards(false)
-	//		case <-serviceFwd.DoneChannel:
-	//			return
-	//		}
-	//	}
-	//}()
+	go func() {
+		for {
+			select {
+			case <-time.After(10 * time.Second):
+				serviceFwd.SyncPodForwards(false)
+			case <-serviceFwd.DoneChannel:
+				return
+			}
+		}
+	}()
 }
 
 // SyncAll does a pod sync for all known services.
@@ -111,8 +111,7 @@ func ShutDownAll() {
 // RemoveByName will shutdown and remove the service, identified by svcName.svcNamespace,
 // from the inventory of services, if it was currently being configured to do forwarding.
 func RemoveByName(name string) {
-
-	log.Debugf("Registry: Removing service %s", name)
+	log.Warnf("Registry: Removing service %s", name)
 
 	// Pop the service from the registry
 	svcRegistry.mutex.Lock()

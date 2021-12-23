@@ -381,6 +381,7 @@ type NamespaceOpts struct {
 
 // watchServiceEvents sets up event handlers to act on service-related events.
 func (opts *NamespaceOpts) watchServiceEvents(stopListenCh <-chan struct{}) {
+	log.Info("Starting to watch service events!!!")
 	// Apply filtering
 	optionsModifier := func(options *metav1.ListOptions) {
 		options.FieldSelector = opts.ListOptions.FieldSelector
@@ -472,6 +473,8 @@ func (opts *NamespaceOpts) DeleteServiceHandler(obj interface{}) {
 // UpdateServiceHandler is the event handler to deal with service changes from k8s.
 // It currently does not do anything.
 func (opts *NamespaceOpts) UpdateServiceHandler(_ interface{}, new interface{}) {
+
+	log.Warn("UpdateServiceHandler!!!!")
 	key, err := cache.MetaNamespaceKeyFunc(new)
 	if err == nil {
 		log.Printf("update service %s.", key)

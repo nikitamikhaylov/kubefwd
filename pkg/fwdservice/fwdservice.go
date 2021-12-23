@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -134,12 +135,32 @@ func (svcFwd *ServiceFWD) SyncPodForwards(force bool) {
 			return
 		}
 
+		//log.Warn("Service pods", svcFwd.ListServicePodNames())
+		//log.Warn("Found pods", k8sPods)
+
+		servicePodsNames := svcFwd.ListServicePodNames()
+
+		var newPods []v1.Pod
+		/// Check new pods added to cluster
+		for _, pod := range k8sPods {
+			new := true
+			for _, podName := range servicePodsNames {
+				if strings.Contains(podName, pod.Name) && (pod.Status.Phase == v1.PodPending || pod.Status.Phase == v1.PodRunning) {
+					new = false
+					break
+				}
+			}
+			if new {
+				newPods = append(newPods, pod)
+			}
+		}
+
 		// Check if the pods currently being forwarded still exist in k8s and if
 		// they are not in a (pre-)running state, if not: remove them
-		for _, podName := range svcFwd.ListServicePodNames() {
+		for _, podName := range servicePodsNames {
 			keep := false
 			for _, pod := range k8sPods {
-				if podName == pod.Name && (pod.Status.Phase == v1.PodPending || pod.Status.Phase == v1.PodRunning) {
+				if strings.Contains(podName, pod.Name) && (pod.Status.Phase == v1.PodPending || pod.Status.Phase == v1.PodRunning) {
 					keep = true
 					break
 				}
@@ -149,48 +170,63 @@ func (svcFwd *ServiceFWD) SyncPodForwards(force bool) {
 			}
 		}
 
+		if len(newPods) > 0 && svcFwd.Headless {
+			log.Warnf("New pods::", func(pods []v1.Pod) []string {
+				var result []string
+				for _, pod := range pods {
+					result = append(result, pod.Name)
+				}
+				return result
+			}(newPods))
+			//svcFwd.LoopPodsToForward([]v1.Pod{newPods[0]}, false)
+			/// First pods seems to be a service pod. It is not interesting for us
+			svcFwd.LoopPodsToForward(newPods[0:], true)
+			return
+		}
+
 		// Set up port-forwarding for one or all of these pods normal service
 		// port-forward the first pod as service name. headless service not only
 		// forward first Pod as service name, but also port-forward all pods.
 		if len(k8sPods) != 0 {
 
-			// if this is a headless service forward the first pod from the
-			// service name, then subsequent pods from their pod name
-			if svcFwd.Headless {
-				svcFwd.LoopPodsToForward([]v1.Pod{k8sPods[0]}, false)
-				svcFwd.LoopPodsToForward(k8sPods, true)
-				return
-			}
+			//// if this is a headless service forward the first pod from the
+			//// service name, then subsequent pods from their pod name
+			//if svcFwd.Headless {
+			//	svcFwd.LoopPodsToForward([]v1.Pod{k8sPods[0]}, false)
+			//	svcFwd.LoopPodsToForward(k8sPods[1:], true)
+			//	return
+			//}
 
-			// Check if currently we are forwarding a pod which is good to keep using
-			podNameToKeep := ""
-			for _, podName := range svcFwd.ListServicePodNames() {
-				if podNameToKeep != "" {
-					break
-				}
-				for _, pod := range k8sPods {
-					if podName == pod.Name && (pod.Status.Phase == v1.PodPending || pod.Status.Phase == v1.PodRunning) {
-						podNameToKeep = pod.Name
-						break
-					}
-				}
-			}
-
-			// Stop forwarding others, should there be. In case none of the currently
-			// forwarded pods are good to keep, podNameToKeep will be the empty string,
-			// and the comparison will mean we will remove all pods, which is the desired behaviour.
-			for _, podName := range svcFwd.ListServicePodNames() {
-				if podName != podNameToKeep {
-					svcFwd.RemoveServicePod(podName)
-				}
-			}
-
-			// If no good pod was being forwarded already, start one
-			if podNameToKeep == "" {
-				svcFwd.LoopPodsToForward([]v1.Pod{k8sPods[0]}, false)
-			}
+			//// Check if currently we are forwarding a pod which is good to keep using
+			//podNameToKeep := ""
+			//for _, podName := range svcFwd.ListServicePodNames() {
+			//	if podNameToKeep != "" {
+			//		break
+			//	}
+			//	for _, pod := range k8sPods {
+			//		if strings.Contains(podName, pod.Name) && (pod.Status.Phase == v1.PodPending || pod.Status.Phase == v1.PodRunning) {
+			//			podNameToKeep = pod.Name
+			//			break
+			//		}
+			//	}
+			//}
+			//
+			//// Stop forwarding others, should there be. In case none of the currently
+			//// forwarded pods are good to keep, podNameToKeep will be the empty string,
+			//// and the comparison will mean we will remove all pods, which is the desired behaviour.
+			//for _, podName := range svcFwd.ListServicePodNames() {
+			//	if podName != podNameToKeep {
+			//		svcFwd.RemoveServicePod(podName)
+			//	}
+			//}
+			//
+			//// If no good pod was being forwarded already, start one
+			//if podNameToKeep == "" {
+			//	svcFwd.LoopPodsToForward([]v1.Pod{k8sPods[0]}, false)
+			//}
 		}
 	}
+
 	// When a whole set of pods gets deleted at once, they all will trigger a SyncPodForwards() call.
 	// This would hammer k8s with load needlessly.  We therefore use a debouncer to only update pods
 	// if things have been stable for at least a few seconds.  However, if things never stabilize we
